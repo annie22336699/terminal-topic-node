@@ -25,14 +25,24 @@ async function getMtls(){
 }
 
 
-async function stockpile(){
+async function stockpile(req){
   const output = {
     success: false,
     message: '',
     rows: [],
   };
 
-  const memid=0;  // 假資料
+  const memid=req.body.memid ?? 0;
+  const cmProd=req.body.cm_prod ?? 0;
+
+  // // 計算總金額及總印製時間
+  // const countValueAndTimeSQL = `SELECT cm_prod_mtl.*, mtl.mtl_value, mtl.mtl_print_time 
+  // FROM cm_prod_mtl
+  // LEFT JOIN mtl
+  // ON cm_prod_mtl.mtl_id=mtl.mtl_id`
+  // const [totalValueandTime] = await db.query(countValueAndTimeSQL)
+  // const totalValue = totalValueandTime[i].mtl_pct*totalValueandTime[i].mtl_value;
+  // const totalTime = totalValueandTime[i].mtl_pct*totalValueandTime[i].mtl_print_time;
 
   // 確認儲存狀態
   const sql= `SELECT * FROM cm_prod WHERE mem_id=${memid} AND cm_prod_status='undone'`;
@@ -41,8 +51,48 @@ async function stockpile(){
 
   if(info.length===0){
     // true(沒有找到)做"新增"
-    const addNewCusDataSQL = "INSERT INTO `cm_prod`(`cm_prod_id`, `cm_prod_name`, `cm_prod_value`, `cm_prod_print_time`, `cm_prod_img_path`, `mem_id`, `cm_prod_edit_time`, `cm_prod_status`, `orders_category`) VALUES (?,?,?,?,?,?,NOW(),'undone','cm')";
-    console.log('還沒寫新增齁');
+    const addNewCusDataSQL = "INSERT INTO `cm_prod`( `mem_id`, `cm_prod_edit_time`, `cm_prod_status`, `orders_category`) VALUES (?,NOW(),'undone','cm')";
+    const [addCusData] = await db.query(addNewCusDataSQL, [
+
+      memid,
+    ]);
+    const addNewId = addCusData.insertId;
+
+    if(addCusData.affectedRows===1){
+      // 新增詳細至cm_prod_mtl表
+
+      let totalValue = 0;
+      let totalPrint = 0;
+
+      cmProd.map(async (e,i)=>{
+        // console.log('e:', e, 'i:', i )
+        const newCusMtlDataSQL = `INSERT INTO cm_prod_mtl(cm_prod_id, mtl_id, mtl_layer, mtl_pct) VALUES (?,?,?,?)`;
+        const [addNewCusMtlData] = await db.query(newCusMtlDataSQL, [
+            addNewId, 
+            e.mtlId,
+            i, 
+            e.mtlPct
+          ]);
+
+        const getValueAndPrintSQL = `SELECT mtl_value, mtl_print_time FROM mtl WHERE mtl_id=${e.mtlId}`;
+        const [res] = await db.query(getValueAndPrintSQL);
+        totalValue += +res[0].mtl_value * e.mtlPct;
+        totalPrint += +res[0].mtl_print_time * e.mtlPct;
+
+        // 把拿到的金額跟值塞回去
+        const updateCusDataSQL = `UPDATE cm_prod SET cm_prod_value=?, cm_prod_print_time=? WHERE mem_id=? AND cm_prod_status='undone'`
+        const [updateCusData] = await db.query(updateCusDataSQL, [
+          totalValue, 
+          totalPrint, 
+          memid,
+        ]);
+      });
+
+    }else{
+      output.success=false;
+      output.message='新增詳細清單失敗';
+    }
+
   }else{
     // false(找到)做"修改"+新增
     // 修改
@@ -59,13 +109,24 @@ async function stockpile(){
       const addNewId = addCusData.insertId;
       if(addCusData.affectedRows===1){
         // 新增詳細至cm_prod_mtl表
-        const newCusMtlDataSQL = `INSERT INTO cm_prod_mtl(cm_prod_id, mtl_id, mtl_layer, mtl_pct) VALUES (?,?,?,?)`;
-        const [addNewCusMtlData] = await db.query(newCusMtlDataSQL, [
-          addNewId, 
-          3, // mtlId,
-          1, // mtl_layer, 
-          1, // mtl_pct
-        ]);
+        // const newCusMtlDataSQL = `INSERT INTO cm_prod_mtl(cm_prod_id, mtl_id, mtl_layer, mtl_pct) VALUES (?,?,?,?)`;
+        // const [addNewCusMtlData] = await db.query(newCusMtlDataSQL, [
+        //   addNewId, 
+        //   3, // mtlId,
+        //   1, // mtl_layer, 
+        //   1, // mtl_pct
+        // ]);
+
+        cmProd.map(async (e,i)=>{
+          const newCusMtlDataSQL = `INSERT INTO cm_prod_mtl(cm_prod_id, mtl_id, mtl_layer, mtl_pct) VALUES (?,?,?,?)`;
+          const [addNewCusMtlData] = await db.query(newCusMtlDataSQL, [
+              addNewId, 
+              e.mtlId,
+              i, 
+              e.mtlPct
+            ]);
+          });
+
       }else{
         output.success=false;
         output.message='新增詳細清單失敗';
@@ -87,7 +148,7 @@ router.post("/api/postcusdata", async (req, res) => {
   res.json(req.body);
   // console.log('接收的東西：',req.body);
 
-  stockpile();
+  stockpile(req);
 })
 
 module.exports = router;
