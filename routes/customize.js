@@ -5,7 +5,6 @@ const router = express.Router();
 async function getMtls(){
     const output = {
         success: false,
-        message: '',
         rows: [],
       };
     let where = ' WHERE 1 ';
@@ -153,5 +152,8 @@ router.post("/api/postcusdata", async (req, res) => {
 
   stockpile(req);
 })
+
+//加進購物車
+addToCart(data.memid,sendListToSetOrder.insertId,data.combo,data.combosum/data.combo,0,'set')
 
 module.exports = router;
